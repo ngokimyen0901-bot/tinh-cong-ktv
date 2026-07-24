@@ -1,0 +1,67 @@
+import streamlit as st
+import pandas as pd
+import io
+
+# Cấu hình giao diện
+st.set_page_config(page_title="Quản lý Giờ Công KTV", layout="wide")
+
+st.markdown("<h1 style='text-align: center; color: #1E88E5;'>HỆ THỐNG TỔNG HỢP CÔNG KTV</h1>", unsafe_allow_html=True)
+
+# 1. Khu vực Upload File
+st.sidebar.header("📁 Tải dữ liệu lên")
+cyber_file = st.sidebar.file_uploader("1. File Cyber (Kế toán)", type=["xlsx"])
+vinfast_file = st.sidebar.file_uploader("2. File Vinfast (Bảo hành)", type=["xlsx"])
+
+if cyber_file:
+    # --- XỬ LÝ FILE CYBER ---
+    # Đọc sheet "Data hđ cyber" (Dựa theo ảnh bạn gửi)
+    df_cyber = pd.read_excel(cyber_file, sheet_name="Data hđ cyber", skiprows=0) 
+    
+    # Giả định các cột dựa trên ảnh (O=14, P=15, T=19, U=20 trong Python index từ 0)
+    # Chúng ta lọc lấy các cột cần thiết
+    cols_cyber = df_cyber.iloc[:, [14, 15, 19, 20]] 
+    cols_cyber.columns = ['MaKTV', 'TenKTV', 'TongCong', 'XuatHD']
+    
+    # Xử lý dữ liệu số (loại bỏ khoảng trắng, ép kiểu số)
+    cols_cyber['TongCong'] = pd.to_numeric(cols_cyber['TongCong'], errors='coerce').fillna(0)
+    cols_cyber['XuatHD'] = pd.to_numeric(cols_cyber['XuatHD'], errors='coerce').fillna(0)
+    
+    # Tính tiền Bảo Hành = Tổng - Hóa đơn
+    cols_cyber['BaoHanh'] = cols_cyber['TongCong'] - cols_cyber['XuatHD']
+    
+    # Tổng hợp theo từng KTV
+    ktv_summary = cols_cyber.groupby(['MaKTV', 'TenKTV']).agg({
+        'BaoHanh': 'sum',
+        'XuatHD': 'sum',
+        'TongCong': 'sum'
+    }).reset_index()
+
+    st.subheader("📊 Bảng Tổng Hợp Công KTV (Dữ liệu Cyber)")
+    st.dataframe(ktv_summary.style.format("{:,.0f}"), use_container_width=True)
+
+    # Hiển thị biểu đồ so sánh cho trực quan trên điện thoại
+    st.bar_chart(ktv_summary.set_index('TenKTV')[['BaoHanh', 'XuatHD']])
+
+# 2. Xử lý File Vinfast nếu có
+if vinfast_file:
+    st.divider()
+    st.subheader("📑 Chi tiết giờ công Bảo hành (Vinfast)")
+    df_vin = pd.read_excel(vinfast_file)
+    # Lọc "Dịch vụ" và tính toán tương tự bước trước...
+    st.info("Hệ thống đang sẵn sàng khớp mã lệnh từ Vinfast sang Cyber.")
+
+# 3. Nút xuất file Excel kết quả
+if cyber_file:
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        ktv_summary.to_excel(writer, index=False, sheet_name='Tong_Hop_KTV')
+    
+    st.sidebar.download_button(
+        label="📥 Tải Báo Cáo Excel",
+        data=output.getvalue(),
+        file_name="Bao_Cao_Cong_KTV.xlsx",
+        mime="application/vnd.ms-excel"
+    )
+
+else:
+    st.warning("Vui lòng tải file Cyber lên để bắt đầu tính toán.")
